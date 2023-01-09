@@ -14,8 +14,8 @@ services:
       ACCEPT_EULA: "Y"
 
   app:
+    image: "pokhylenkoregistry.azurecr.io/todo-app:v1"
     container_name: "lab-03-app"
-    build: .
     depends_on:
       - db
     ports:

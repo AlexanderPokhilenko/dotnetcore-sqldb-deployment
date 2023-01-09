@@ -1,0 +1,151 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sqlserver-config
+  labels:
+    app: sqlserver
+data:
+  MSSQL_SA_INITIAL_CATALOG: tododb
+  MSSQL_SA_USER: sa
+  MSSQL_SA_PASSWORD: Str0ngPassw0rd
+  MSSQL_PID: "Express"
+  ACCEPT_EULA: "Y"
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lab04-todo-pvc
+  labels:
+    app: sqlserver
+spec:
+  accessModes:
+    - ReadWriteOnce  
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sqlserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sqlserver
+  template:
+    metadata:
+      labels:
+        app: sqlserver
+    spec:
+      securityContext:
+        fsGroup: 10001
+      containers:
+        - name: sqlserver
+          image: "mcr.microsoft.com/mssql/server:2022-latest"
+          imagePullPolicy: "IfNotPresent"
+          ports:
+            - containerPort: 1433 
+          envFrom:
+            - configMapRef:
+                name: sqlserver-config
+          volumeMounts:
+            - mountPath: /var/opt/mssql
+              name: sqlserverdb
+      volumes:
+        - name: sqlserverdb
+          persistentVolumeClaim:
+            claimName: lab04-todo-pvc
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: sqlserver
+spec:
+  type: ClusterIP
+  selector:
+    app: sqlserver
+  ports:
+    - name: "sqlserver"
+      protocol: TCP
+      port: 1433
+      targetPort: 1433
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: lab04-todoapp
+  labels:
+    name: lab04-todoapp
+spec:
+  ports:
+    - port: 5000
+      targetPort: 5000
+  selector:
+    app: lab04-todoapp
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab04-todoapp
+spec:
+  selector:
+    matchLabels:
+      app: lab04-todoapp
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: lab04-todoapp
+    spec:
+      containers:
+        - name: lab04-todoapp
+          image: "pokhylenkoregistry.azurecr.io/todo-app:v1"
+          ports:
+            - containerPort: 5000
+              name: "http"
+          env:
+            - name: MSSQL_SA_INITIAL_CATALOG
+              valueFrom:
+                configMapKeyRef:
+                  name: sqlserver-config
+                  key: MSSQL_SA_INITIAL_CATALOG
+            - name: MSSQL_SA_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: sqlserver-config
+                  key: MSSQL_SA_USER
+            - name: MSSQL_SA_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: sqlserver-config
+                  key: MSSQL_SA_PASSWORD
+            - name: defaultConnection
+              value: Server=127.0.0.1,1433;Initial Catalog=$(MSSQL_SA_INITIAL_CATALOG);User ID=$(MSSQL_SA_USER);Password=$(MSSQL_SA_PASSWORD)
+            - name: ASPNETCORE_URLS
+              value: http://0.0.0.0:5000
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: lab04-todoapp-lb
+spec:
+  selector:
+    app: lab04-todoapp
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5000
+  type: LoadBalancer
